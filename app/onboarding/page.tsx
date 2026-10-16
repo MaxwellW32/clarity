@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AuthShell } from "@/components/auth-shell";
 import { InviteStep, OrgStep, TeamStep } from "@/components/onboarding/steps";
+import { SampleDataControls } from "@/components/settings/sample-data";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getSetupState } from "@/lib/dal/orgs";
@@ -116,9 +117,13 @@ async function Onboarding({ searchParams }: Pick<PageProps<"/onboarding">, "sear
         {context.org.name} and {setup.firstTeamName ?? "your team"} are ready. You can change members and teams any time under
         Settings → Organization.
       </p>
-      <Button asChild className="mt-8 h-10">
-        <Link href="/overview">Go to overview</Link>
-      </Button>
+      <div className="mt-8 flex flex-wrap items-center gap-3">
+        <Button asChild className="h-10">
+          <Link href="/overview">Go to overview</Link>
+        </Button>
+        <SampleDataControls loaded={false} />
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">Sample data is a handful of labelled tasks, requests and a goal, so the screens make sense before real work arrives. Remove it any time under Settings → Organization.</p>
     </div>
   );
 }

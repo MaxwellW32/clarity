@@ -68,6 +68,7 @@ export function TaskRow({ task, today }: { task: TaskListItem; today: string }) 
       <Link
         href={`/tasks/${task.id}`}
         prefetch={false}
+        data-task-link
         className="flex min-w-0 flex-1 flex-col gap-0.5 outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring md:flex-row md:items-baseline md:gap-3"
         onClick={(event) => {
           if (longPressed.current) {

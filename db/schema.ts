@@ -438,6 +438,8 @@ export const notificationPreferences = pgTable("notification_preferences", {
   emailRequestDecision: boolean("email_request_decision").notNull().default(true),
   emailHandover: boolean("email_handover").notNull().default(true),
   emailDueSoon: boolean("email_due_soon").notNull().default(false),
+  /** Leads: a task on a team they lead was marked blocked. */
+  emailBlocked: boolean("email_blocked").notNull().default(true),
 });
 
 // --- row types ----------------------------------------------------------------

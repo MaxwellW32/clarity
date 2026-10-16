@@ -7,7 +7,7 @@ import { TaskHeader } from "@/components/tasks/detail/task-header";
 import { TaskHistory } from "@/components/tasks/detail/task-history";
 import { CurrentTask } from "@/components/tasks/task-actions";
 import { listHistory } from "@/lib/dal/history";
-import { getTask, listEvidence, taskPeople } from "@/lib/dal/tasks";
+import { getTask, linkOptions, listEvidence, taskPeople } from "@/lib/dal/tasks";
 import { canApproveTask, canEditTask, canReadTask, canUpdateProgress } from "@/lib/permissions";
 import { defaultApproverFor } from "@/lib/tasks/approver";
 import type { TaskAbilities } from "@/lib/tasks/types";
@@ -24,11 +24,12 @@ export default async function TaskPage(props: PageProps<"/tasks/[id]">) {
   const { id } = await props.params;
   const viewer = await requireViewer();
   // One round trip for everything; nothing is rendered unless the viewer may read the task.
-  const [found, evidence, history, people] = await Promise.all([
+  const [found, evidence, history, people, links] = await Promise.all([
     getTask(viewer, id),
     listEvidence(viewer, id),
     listHistory(viewer, id, null),
     taskPeople(viewer, id),
+    linkOptions(viewer),
   ]);
   if (found === null || !canReadTask(viewer, found.scope)) notFound();
   const { detail, scope } = found;
@@ -77,6 +78,10 @@ export default async function TaskPage(props: PageProps<"/tasks/[id]">) {
         <TaskDetails
           detail={detail}
           abilities={abilities}
+          links={{
+            goals: links.goals.filter((goal) => goal.teamId === null || goal.teamId === detail.team.id),
+            expectations: links.expectations.filter((expectation) => expectation.teamId === detail.team.id),
+          }}
           started={detail.startedAt ? when(detail.startedAt) : null}
           completed={detail.completedAt ? when(detail.completedAt) : null}
         />

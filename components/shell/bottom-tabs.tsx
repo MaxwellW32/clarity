@@ -18,7 +18,8 @@ export function BottomTabs({ items }: { items: NavKey[] }) {
   const [open, setOpen] = useState(false);
   const [signingOut, startSignOut] = useTransition();
   const tabs = items.slice(0, 4);
-  const moreActive = isActive(pathname, "/settings");
+  const rest = items.slice(4);
+  const moreActive = isActive(pathname, "/settings") || rest.some((key) => isActive(pathname, NAV_ITEMS[key].href));
 
   return (
     <nav aria-label="Main" className="flex h-16 items-stretch px-1 pb-[env(safe-area-inset-bottom)]">
@@ -49,6 +50,7 @@ export function BottomTabs({ items }: { items: NavKey[] }) {
           </SheetHeader>
           <div className="flex flex-col gap-1 px-4">
             {[
+              ...rest.map((key) => NAV_ITEMS[key]),
               { href: "/settings", label: "Settings", icon: Settings },
               { href: "/settings/organization", label: "Organization", icon: Building2 },
             ].map(({ href, label, icon: Icon }) => (

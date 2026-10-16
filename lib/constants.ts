@@ -106,6 +106,24 @@ export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
   urgent: "Urgent",
 };
 
+export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
+  new: "New",
+  under_review: "Under review",
+  approved: "Approved",
+  deferred: "Deferred",
+  rejected: "Rejected",
+  converted: "Converted to work",
+};
+
+export const REQUEST_URGENCY_LABELS: Record<RequestUrgency, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+  critical: "Critical",
+};
+
+export const TASK_SIZE_LABELS: Record<TaskSize, string> = { s: "Small", m: "Medium", l: "Large" };
+
 export const DEFAULT_TIMEZONE = "America/Jamaica";
 
 /** Cookie holding the active organization id (validated against membership on every request). */

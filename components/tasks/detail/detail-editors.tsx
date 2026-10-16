@@ -96,3 +96,5 @@ export function SizeEditor({ taskId, size, editable }: { taskId: string; size: T
     </NativeSelect>
   );
 }
+
+export { ImpactEditor, LinkEditor } from "./link-editors";

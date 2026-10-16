@@ -41,6 +41,21 @@ export function magicLinkEmail({ to, url }: { to: string; url: string }): MailMe
   };
 }
 
+export function notificationEmail(input: { to: string; title: string; body: string | null; url: string }): MailMessage {
+  const { to, title, body, url } = input;
+  return {
+    to,
+    subject: `${title} · Clarity`,
+    text: `${title}\n${body ? `${body}\n` : ""}\nOpen it: ${url}\n\nYou can change which emails you get under Settings in Clarity.`,
+    html: layout(
+      title,
+      body ? `<p style="margin:0;">${escapeHtml(body)}</p>` : "",
+      { label: "Open in Clarity", url },
+      "You can change which emails you get under Settings in Clarity.",
+    ),
+  };
+}
+
 export function invitationEmail(input: {
   to: string;
   url: string;

@@ -156,6 +156,6 @@ describe("roles", () => {
 
   it("stakeholders see Overview and Requests only", () => {
     expect(navFor(stakeholder)).toEqual(["overview", "requests"]);
-    expect(navFor(member)).toEqual(["overview", "my-work", "team", "requests"]);
+    expect(navFor(member)).toEqual(["overview", "my-work", "team", "requests", "goals", "reports"]);
   });
 });

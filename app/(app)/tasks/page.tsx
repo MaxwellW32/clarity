@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { NewTaskButton } from "@/components/tasks/new-task-button";
+import { LastFilters } from "@/components/tasks/last-filters";
 import { TaskList } from "@/components/tasks/task-list";
 import { TaskToolbar } from "@/components/tasks/task-toolbar";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ export default async function TasksPage(props: PageProps<"/tasks">) {
     <>
       <PageHeader title="Tasks" description="Every task in the organization. Filters live in the address, so a view can be shared." action={<NewTaskButton />} />
       <TaskToolbar filters={filters} people={people} teams={myTeams} />
+      <LastFilters current={filtersToParams(filters).toString()} />
       {page.items.length === 0 ? (
         isFiltered(filters) ? (
           <EmptyState

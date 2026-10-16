@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Inbox, LayoutGrid, ListChecks, NotebookPen, Plus, Search, Settings, Users } from "lucide-react";
+import { BarChart3, Building2, Inbox, LayoutGrid, ListChecks, NotebookPen, Plus, Search, Settings, Sparkles, Target, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { paletteSearch } from "@/actions/tasks";
@@ -24,6 +24,10 @@ const PLACES = [
   { href: "/tasks", label: "Tasks", icon: Search },
   { href: "/team", label: "Team", icon: Users },
   { href: "/requests", label: "Requests", icon: Inbox },
+  { href: "/requests/review", label: "Weekly review", icon: Inbox },
+  { href: "/goals", label: "Goals", icon: Target },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/my-impact", label: "My Impact", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/settings/organization", label: "Organization", icon: Building2 },
 ];

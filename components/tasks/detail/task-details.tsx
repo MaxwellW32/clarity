@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Person, TaskAbilities, TaskDetail } from "@/lib/tasks/types";
-import { DescriptionEditor, SizeEditor } from "./detail-editors";
+import type { LinkOptions, Person, TaskAbilities, TaskDetail } from "@/lib/tasks/types";
+import { DescriptionEditor, ImpactEditor, LinkEditor, SizeEditor } from "./detail-editors";
 
 type When = { relative: string; absolute: string };
 
@@ -31,11 +31,13 @@ function Stamp({ when }: { when: When }) {
 export function TaskDetails({
   detail,
   abilities,
+  links,
   started,
   completed,
 }: {
   detail: TaskDetail;
   abilities: TaskAbilities;
+  links: LinkOptions;
   started: When | null;
   completed: When | null;
 }) {
@@ -46,6 +48,7 @@ export function TaskDetails({
       </h2>
       <div className="grid gap-4 px-5 py-4 md:px-6">
         <DescriptionEditor taskId={detail.id} description={detail.description} editable={abilities.edit} />
+        <ImpactEditor taskId={detail.id} impactNote={detail.impactNote} editable={abilities.edit} completed={detail.status === "completed"} />
         <dl className="divide-y border-t">
           <Row label="Team">
             {detail.team.name}
@@ -54,6 +57,14 @@ export function TaskDetails({
           <Row label="Size">
             <SizeEditor taskId={detail.id} size={detail.size} editable={abilities.edit} />
           </Row>
+          <Row label="Goal">
+            <LinkEditor taskId={detail.id} field="goalId" current={detail.goal} options={links.goals} editable={abilities.edit} link={{ prefix: "/goals/" }} none="No goal" />
+          </Row>
+          {links.expectations.length > 0 || detail.expectation ? (
+            <Row label="Counts toward">
+              <LinkEditor taskId={detail.id} field="expectationId" current={detail.expectation} options={links.expectations} editable={abilities.edit} link={{ fixed: `/team?team=${detail.team.id}` }} none="No expectation" />
+            </Row>
+          ) : null}
           {detail.approver ? <Row label="Approver">{nameOf(detail.approver)}</Row> : null}
           <Row label="Created by">{nameOf(detail.creator)}</Row>
           {started ? (

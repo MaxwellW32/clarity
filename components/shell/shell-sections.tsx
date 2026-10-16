@@ -1,7 +1,9 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { unreadCount } from "@/lib/dal/notifications";
 import { navFor } from "@/lib/permissions";
 import { requireAppContext } from "@/lib/viewer";
 import { BottomTabs } from "./bottom-tabs";
+import { NotificationBell } from "./notification-bell";
 import { OrgSwitcher } from "./org-switcher";
 import { SearchButton } from "./search-button";
 import { SidebarNav } from "./sidebar-nav";
@@ -29,6 +31,11 @@ export async function SidebarMainNav() {
   return <SidebarNav items={navFor(viewer)} />;
 }
 
+export async function SidebarNotifications() {
+  const { viewer } = await context();
+  return <NotificationBell unread={await unreadCount(viewer)} />;
+}
+
 export async function SidebarAccount() {
   const { user } = await context();
   return <UserMenu user={user} />;
@@ -36,11 +43,13 @@ export async function SidebarAccount() {
 
 export async function MobileTopBar() {
   const { viewer, user, orgs } = await context();
+  const unread = await unreadCount(viewer);
   return (
     <>
       <OrgSwitcher orgs={orgs} activeOrgId={viewer.orgId} compact />
       <div className="ml-auto flex items-center gap-1">
         {viewer.orgRole !== "stakeholder" ? <SearchButton /> : null}
+        <NotificationBell unread={unread} variant="icon" />
         <UserMenu user={user} variant="avatar" />
       </div>
     </>

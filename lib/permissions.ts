@@ -105,8 +105,8 @@ export const canManageOrg = (viewer: Viewer) => isAdmin(viewer);
 
 export type NavKey = "overview" | "my-work" | "team" | "requests" | "goals" | "reports";
 
-/** What the navigation shows. Goals and Reports stay hidden until Phase 2 ships. */
+/** What the navigation shows: stakeholders get the front door and requests, everyone else the lot. */
 export function navFor(viewer: Pick<Viewer, "orgRole">): NavKey[] {
   if (viewer.orgRole === "stakeholder") return ["overview", "requests"];
-  return ["overview", "my-work", "team", "requests"];
+  return ["overview", "my-work", "team", "requests", "goals", "reports"];
 }

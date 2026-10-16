@@ -15,10 +15,10 @@ if (only("landing")) {
   const LANDINGS = [
     // persona, size, words that must be on /overview, words that must not be
     ["admin", "desktop", [ORG.name, "Admin", firstName("admin"), "Invite people", ORG.team], []],
-    ["lead", "desktop", [ORG.name, firstName("lead"), "Your teams", ORG.team, "lead", "My Work", "Team"], ["Invite people"]],
+    ["lead", "desktop", [ORG.name, firstName("lead"), "Team dashboard", ORG.team, "lead", "My Work", "Pick up where you left off"], ["Invite people"]],
     ["member", "phone", [ORG.name, firstName("member"), ORG.team], ["Invite people"]],
     ["member2", "desktop", [firstName("member2"), ORG.team], []],
-    ["stakeholder", "desktop", [firstName("stakeholder"), "Stakeholder", "Requests"], ["My Work", "Your teams"]],
+    ["stakeholder", "desktop", [firstName("stakeholder"), "New request", "Requests"], ["My Work", "Team dashboard"]],
     ["other", "desktop", [OTHER_ORG.name, firstName("other"), OTHER_ORG.team], [ORG.name]],
   ];
   for (const [role, size, words, absent] of LANDINGS) {

@@ -202,3 +202,26 @@
     opacity: 0.6;
   }
 }
+
+/* Reports print as the document alone: no sidebar, tabs, buttons or controls, black on white. */
+@media print {
+  aside,
+  header,
+  nav,
+  [data-print-hide],
+  .print\:hidden {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

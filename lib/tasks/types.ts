@@ -56,7 +56,13 @@ export type TaskDetail = {
   completionSummary: string | null;
   lastUpdate: { author: Person; at: string } | null;
   request: { id: string; title: string } | null;
+  goal: { id: string; title: string } | null;
+  expectation: { id: string; title: string } | null;
+  impactNote: string | null;
 };
+
+/** Pickers on the task page: active goals (org-wide or the task's team) and the team's open expectations. */
+export type LinkOptions = { goals: { id: string; title: string; teamId: string | null }[]; expectations: { id: string; title: string; teamId: string }[] };
 
 /** What the viewer may do on a task, decided on the server. */
 export type TaskAbilities = { edit: boolean; progress: boolean; approve: boolean; reject: boolean };

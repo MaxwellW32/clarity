@@ -5,6 +5,7 @@ import { getUpdateContext } from "@/actions/tasks";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TaskStatus } from "@/lib/constants";
+import { ShortcutsHelp } from "@/components/shell/shortcuts-help";
 import { CommandPalette } from "./command-palette";
 import { CreateTaskForm } from "./create-task-form";
 import { TRANSITION_TITLES, TransitionForm } from "./transition-form";
@@ -79,6 +80,7 @@ export function TaskActionsProvider({ children }: { children: ReactNode }) {
   const [updateTaskId, setUpdateTaskId] = useState<string | null>(null);
   const [transition, setTransition] = useState<{ taskId: string; status: TaskStatus } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const openUpdate = useCallback(
     (taskId: string) => {
@@ -121,6 +123,18 @@ export function TaskActionsProvider({ children }: { children: ReactNode }) {
           event.preventDefault();
           search.focus();
         }
+      } else if (event.key === "?") {
+        event.preventDefault();
+        setHelpOpen(true);
+      } else if (event.key === "j" || event.key === "k") {
+        // Roving focus through the task rows on the page; Enter then follows the focused link.
+        const links = [...document.querySelectorAll<HTMLAnchorElement>("[data-task-link]")];
+        if (links.length === 0) return;
+        event.preventDefault();
+        const index = links.findIndex((link) => link === document.activeElement);
+        const next = event.key === "j" ? Math.min(links.length - 1, index + 1) : Math.max(0, index <= 0 ? 0 : index - 1);
+        links[next]?.focus();
+        links[next]?.scrollIntoView({ block: "nearest" });
       }
     }
     window.addEventListener("keydown", onKey);
@@ -179,6 +193,7 @@ export function TaskActionsProvider({ children }: { children: ReactNode }) {
       </Dialog>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} />
     </TaskActionsContext>
   );
 }

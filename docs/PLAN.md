@@ -1,5 +1,7 @@
 # Clarity — Build Plan (decisions are locked)
 
+> **Status (2026-10-15):** Steps A, B and C, Phase 2 and Phase 3 are built. Everything in §2 exists except `/tasks/new` as a dialog-only route (it is also a page). Walkthroughs 01–05 and the vitest suites are the regression net; `npm run test:walk` runs them all. Deviations from this plan are recorded in `AGENTS.md`.
+
 This file is the hand-off for anyone building Clarity. Read `docs/BRIEF.md` for intent; this file says *how*. Decisions here were made after reading the brief and the owner's answers on 2026-10-15 — follow them, don't re-open them. If something here is genuinely impossible, say so in the report rather than silently choosing differently.
 
 Owner context: first real users are the owner's own dev team and their manager (small team, one org). The app is still multi-tenant, but onboarding stays short.

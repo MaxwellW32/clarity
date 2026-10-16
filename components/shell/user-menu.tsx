@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import { Building2, ChevronsUpDown, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
+import { Building2, ChevronsUpDown, LogOut, Monitor, Moon, Settings, Sparkles, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { useTransition } from "react";
@@ -61,6 +61,12 @@ export function UserMenu({ user, variant = "full" }: { user: MenuUser; variant?:
             <DropdownMenuSeparator />
           </>
         ) : null}
+        <DropdownMenuItem asChild>
+          <Link href="/my-impact">
+            <Sparkles className="size-4" aria-hidden />
+            My Impact
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/settings">
             <Settings className="size-4" aria-hidden />

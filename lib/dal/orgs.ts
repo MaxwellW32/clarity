@@ -162,6 +162,23 @@ export async function findTeam(tx: Handle, orgId: string, teamId: string) {
   return team ?? null;
 }
 
+export async function isTeamMemberRow(tx: Handle, teamId: string, userId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)));
+  return row !== undefined;
+}
+
+/** Teams whose work the viewer manages: every team for an admin, otherwise the ones they lead. */
+export async function managedTeamIds(viewer: Viewer): Promise<string[]> {
+  if (viewer.orgRole === "admin") {
+    const rows = await db.select({ id: teams.id }).from(teams).where(eq(teams.orgId, viewer.orgId));
+    return rows.map((row) => row.id);
+  }
+  return [...viewer.teamRoles].filter(([, role]) => role === "lead").map(([teamId]) => teamId);
+}
+
 export async function findMembership(tx: Handle, orgId: string, userId: string) {
   const [row] = await tx
     .select()

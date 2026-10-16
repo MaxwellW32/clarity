@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { refresh } from "next/cache";
 import { z } from "zod";
 import { db, type Tx } from "@/db";
-import { organizationMembers, projects, taskEvidenceLinks, taskUpdates, tasks, teamMembers } from "@/db/schema";
+import { goals, organizationMembers, projects, taskEvidenceLinks, taskUpdates, tasks, teamExpectations, teamMembers } from "@/db/schema";
 import { fail, GuardError, ok, runAction, type ActionResult } from "@/lib/action-result";
 import { TASK_PRIORITIES, TASK_SIZES, TASK_STATUSES, type TaskStatus } from "@/lib/constants";
 import { recordActivity } from "@/lib/dal/activity";
@@ -12,6 +12,8 @@ import { listHistory } from "@/lib/dal/history";
 import { findTeam } from "@/lib/dal/orgs";
 import { getTaskBasics, listTasks, lockTask, searchTasks, taskFormOptions, taskPeople } from "@/lib/dal/tasks";
 import { log } from "@/lib/log";
+import { teamLeadIds } from "@/lib/dal/notifications";
+import { dispatch, type Notice } from "@/lib/notify";
 import { canApproveTask, canCreateTask, canEditTask, canReadTask, canUpdateProgress, type TaskScope, type Viewer } from "@/lib/permissions";
 import { defaultApproverFor } from "@/lib/tasks/approver";
 import { parseFilters } from "@/lib/tasks/filters";
@@ -54,6 +56,30 @@ function mayMove(viewer: Viewer, scope: TaskScope, from: TaskStatus, to: TaskSta
   if (via !== "status" || (from === "awaiting_approval" && to === "completed")) return canApproveTask(viewer, scope);
   if (to === "rejected") return canEditTask(viewer, scope);
   return canUpdateProgress(viewer, scope);
+}
+
+/** Who to tell about a status change: the approver asked, the assignee decided on, the leads of a blocked task. */
+async function noticesFor(
+  tx: Tx,
+  viewer: Viewer,
+  task: { id: string; title: string; teamId: string; assigneeId: string | null },
+  activities: ActivityDraft[],
+  approverId: string | null,
+  note: string | null,
+): Promise<Notice[]> {
+  const base = { orgId: viewer.orgId, actorId: viewer.userId, href: `/tasks/${task.id}` };
+  const out: Notice[] = [];
+  for (const activity of activities) {
+    if (activity.kind === "approval_requested" && approverId) out.push({ ...base, recipients: [approverId], kind: "approval_requested", title: `Approval needed: ${task.title}`, body: null });
+    if (activity.kind === "approved" && task.assigneeId) out.push({ ...base, recipients: [task.assigneeId], kind: "approval_decided", title: `Approved: ${task.title}`, body: note });
+    if (activity.kind === "sent_back" && task.assigneeId) out.push({ ...base, recipients: [task.assigneeId], kind: "approval_decided", title: `Sent back: ${task.title}`, body: note });
+    if (activity.kind === "blocked") {
+      const leads = await teamLeadIds(tx, task.teamId);
+      const reason = typeof activity.note === "string" ? activity.note : null;
+      if (leads.length > 0) out.push({ ...base, recipients: leads, kind: "blocked", title: `Blocked: ${task.title}`, body: reason });
+    }
+  }
+  return out;
 }
 
 // --- create ---------------------------------------------------------------------------------------------------
@@ -107,6 +133,9 @@ export async function createTask(input: z.input<typeof createSchema>): Promise<A
       return created.id;
     });
     log.info("tasks.created", { orgId: viewer.orgId, taskId, by: viewer.userId });
+    if (data.assigneeId && data.assigneeId !== viewer.userId) {
+      await dispatch([{ orgId: viewer.orgId, actorId: viewer.userId, recipients: [data.assigneeId], kind: "assigned", title: `New task for you: ${data.title}`, body: data.nextAction ? `First step: ${data.nextAction}` : null, href: `/tasks/${taskId}` }]);
+    }
     refresh();
     return ok({ id: taskId }, "Task created.");
   });
@@ -121,12 +150,16 @@ const editSchema = z.discriminatedUnion("field", [
   z.object({ taskId: id, field: z.literal("dueDate"), value: day }),
   z.object({ taskId: id, field: z.literal("assigneeId"), value: z.string().max(64) }),
   z.object({ taskId: id, field: z.literal("size"), value: z.union([z.literal(""), z.enum(TASK_SIZES)]) }),
+  z.object({ taskId: id, field: z.literal("goalId"), value: z.string().max(64) }),
+  z.object({ taskId: id, field: z.literal("expectationId"), value: z.string().max(64) }),
+  z.object({ taskId: id, field: z.literal("impactNote"), value: z.string().trim().max(2000) }),
 ]);
 
 export async function editTask(input: z.input<typeof editSchema>): Promise<ActionResult> {
   return runAction("tasks.edit", editSchema, input, async (data) => {
     const viewer = await requireViewer();
     const now = new Date();
+    const notices: Notice[] = [];
     await db.transaction(async (tx) => {
       const locked = await lockTask(tx, viewer.orgId, data.taskId);
       if (locked === null) throw new GuardError("not_found");
@@ -137,6 +170,14 @@ export async function editTask(input: z.input<typeof editSchema>): Promise<Actio
       if (before === value) return;
       if (data.field === "assigneeId" && value !== null && !(await isTeamMember(tx, task.teamId, value))) {
         throw new GuardError("forbidden", "The assignee must be on the team.");
+      }
+      if (data.field === "goalId" && value !== null) {
+        const [goal] = await tx.select({ teamId: goals.teamId }).from(goals).where(and(eq(goals.id, value), eq(goals.orgId, viewer.orgId)));
+        if (!goal || (goal.teamId !== null && goal.teamId !== task.teamId)) throw new GuardError("not_found", "That goal isn't available to this team.");
+      }
+      if (data.field === "expectationId" && value !== null) {
+        const [expectation] = await tx.select({ teamId: teamExpectations.teamId }).from(teamExpectations).where(and(eq(teamExpectations.id, value), eq(teamExpectations.orgId, viewer.orgId)));
+        if (!expectation || expectation.teamId !== task.teamId) throw new GuardError("not_found", "That expectation belongs to another team.");
       }
       const short = (v: unknown) => (typeof v === "string" && v.length > 500 ? `${v.slice(0, 500)}…` : v);
       const draft: ActivityDraft =
@@ -149,7 +190,11 @@ export async function editTask(input: z.input<typeof editSchema>): Promise<Actio
               : { kind: "edited", before: { [data.field]: short(before) }, after: { [data.field]: short(value) } };
       await tx.update(tasks).set({ [data.field]: value, updatedAt: now }).where(eq(tasks.id, task.id));
       await recordActivity(tx, { orgId: viewer.orgId, taskId: task.id, actorId: viewer.userId }, [draft], now);
+      if (data.field === "assigneeId" && value !== null) {
+        notices.push({ orgId: viewer.orgId, actorId: viewer.userId, recipients: [value], kind: "assigned", title: `Assigned to you: ${task.title}`, body: task.nextAction ? `Next: ${task.nextAction}` : null, href: `/tasks/${task.id}` });
+      }
     });
+    await dispatch(notices);
     refresh();
     return ok(undefined);
   });
@@ -175,6 +220,7 @@ export async function changeStatus(input: z.input<typeof statusSchema>): Promise
   return runAction("tasks.status", statusSchema, input, async (data) => {
     const viewer = await requireViewer();
     const now = new Date();
+    const notices: Notice[] = [];
     const outcome = await db.transaction(async (tx) => {
       const locked = await lockTask(tx, viewer.orgId, data.taskId);
       if (locked === null) throw new GuardError("not_found");
@@ -191,9 +237,11 @@ export async function changeStatus(input: z.input<typeof statusSchema>): Promise
       const evidence = data.status === "completed" ? await addEvidence(tx, task.id, viewer.userId, data.evidenceUrl, data.evidenceLabel, now) : [];
       await tx.update(tasks).set({ ...plan.patch, updatedAt: now }).where(eq(tasks.id, task.id));
       await recordActivity(tx, { orgId: viewer.orgId, taskId: task.id, actorId: viewer.userId }, [...plan.activities, ...evidence], now);
+      notices.push(...(await noticesFor(tx, viewer, { id: task.id, title: task.title, teamId: task.teamId, assigneeId: task.assigneeId }, plan.activities, data.approverId || task.approverId, data.note)));
       return null;
     });
     if (outcome !== null) return fail(outcome);
+    await dispatch(notices);
     refresh();
     const messages: Partial<Record<TaskStatus, string>> = { completed: data.via === "approve" ? "Approved." : "Marked complete.", blocked: "Marked blocked.", awaiting_approval: "Sent for approval." };
     return ok(undefined, data.via === "send_back" ? "Sent back." : (messages[data.status] ?? "Status updated."));
@@ -232,6 +280,7 @@ export async function updateProgress(input: z.input<typeof progressSchema>): Pro
   return runAction("tasks.progress", progressSchema, input, async (data) => {
     const viewer = await requireViewer();
     const now = new Date();
+    const notices: Notice[] = [];
     const outcome = await db.transaction(async (tx) => {
       const locked = await lockTask(tx, viewer.orgId, data.taskId);
       if (locked === null) throw new GuardError("not_found");
@@ -266,7 +315,9 @@ export async function updateProgress(input: z.input<typeof progressSchema>): Pro
         if (!(await isTeamMember(tx, task.teamId, data.handOverTo))) throw new GuardError("forbidden", "You can only hand over to someone on the team.");
         drafts.push({ kind: "handed_over", before: { assigneeId: task.assigneeId }, after: { assigneeId: data.handOverTo } });
         assigneeId = data.handOverTo;
+        notices.push({ orgId: viewer.orgId, actorId: viewer.userId, recipients: [data.handOverTo], kind: "handover", title: `Handed over to you: ${task.title}`, body: data.nextAction ? `Next: ${data.nextAction}` : data.progress.slice(0, 200), href: `/tasks/${task.id}` });
       }
+      notices.push(...(await noticesFor(tx, viewer, { id: task.id, title: task.title, teamId: task.teamId, assigneeId }, drafts, data.approverId || task.approverId, null)));
       drafts.push(...(await addEvidence(tx, task.id, viewer.userId, data.evidenceUrl, data.evidenceLabel, now)));
 
       await tx.insert(taskUpdates).values({
@@ -285,6 +336,7 @@ export async function updateProgress(input: z.input<typeof progressSchema>): Pro
       return null;
     });
     if (outcome !== null) return fail(outcome);
+    await dispatch(notices);
     refresh();
     return ok(undefined, "Update saved.");
   });

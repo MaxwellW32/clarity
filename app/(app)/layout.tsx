@@ -1,4 +1,5 @@
 import { Suspense, type ReactNode } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarSearch } from "@/components/shell/search-button";
 import { TaskActionsProvider } from "@/components/tasks/task-actions";
 import {
@@ -9,6 +10,7 @@ import {
   OrgSkeleton,
   SidebarAccount,
   SidebarMainNav,
+  SidebarNotifications,
   SidebarOrg,
   TabsSkeleton,
   TopBarSkeleton,
@@ -33,6 +35,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Suspense fallback={<NavSkeleton />}>
               <SidebarMainNav />
             </Suspense>
+            <div className="mt-2 border-t px-3 pt-2">
+              <Suspense fallback={<Skeleton className="h-8 w-full" />}>
+                <SidebarNotifications />
+              </Suspense>
+            </div>
           </div>
           <div className="border-t p-2">
             <Suspense fallback={<AccountSkeleton />}>

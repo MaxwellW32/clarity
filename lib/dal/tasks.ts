@@ -2,12 +2,12 @@ import "server-only";
 import { and, asc, desc, eq, ilike, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { db, type Tx } from "@/db";
-import { organizationMembers, projects, requests, taskEvidenceLinks, tasks, teams, users } from "@/db/schema";
+import { goals, organizationMembers, projects, requests, taskEvidenceLinks, tasks, teamExpectations, teams, users } from "@/db/schema";
 import type { TaskStatus } from "@/lib/constants";
 import { listTeams } from "@/lib/dal/orgs";
 import { isAdmin, isStakeholder, type Viewer } from "@/lib/permissions";
 import type { TaskFilters, TaskSort } from "@/lib/tasks/filters";
-import type { EvidenceLink, Person, TaskDetail, TaskFormOptions, TaskListItem, TaskPage } from "@/lib/tasks/types";
+import type { EvidenceLink, LinkOptions, Person, TaskDetail, TaskFormOptions, TaskListItem, TaskPage } from "@/lib/tasks/types";
 
 const CLOSED: TaskStatus[] = ["completed", "rejected"];
 const assigneeUser = alias(users, "assignee_user");
@@ -130,6 +130,46 @@ export async function listTasks(viewer: Viewer, filters: TaskFilters, options: {
   return { items, nextCursor: rows.length > limit ? items[items.length - 1].id : null };
 }
 
+const ATTENTION_RANK: Record<string, number> = { Overdue: 0, Blocked: 1, "Your approval": 2, "Awaiting approval": 3, Unassigned: 4, "Due soon": 5 };
+
+/**
+ * Open tasks in the given teams that need someone's hand: overdue, blocked, awaiting approval, unassigned, or
+ * due within three days. Each carries one reason; the most pressing reason wins, then the nearest due date.
+ */
+export async function attentionTasks(viewer: Viewer, teamIds: string[], today: string, limit = 50): Promise<TaskListItem[]> {
+  if (teamIds.length === 0) return [];
+  const rows = await db
+    .select({ ...listColumns, approverId: tasks.approverId })
+    .from(tasks)
+    .innerJoin(teams, eq(teams.id, tasks.teamId))
+    .leftJoin(assigneeUser, eq(assigneeUser.id, tasks.assigneeId))
+    .where(
+      and(
+        eq(tasks.orgId, viewer.orgId),
+        inArray(tasks.teamId, teamIds),
+        notInArray(tasks.status, CLOSED),
+        or(
+          eq(tasks.status, "blocked"),
+          eq(tasks.status, "awaiting_approval"),
+          sql`${tasks.dueDate} <= ${today}::date + 3`,
+          isNull(tasks.assigneeId),
+        ),
+      ),
+    );
+  const items = rows.map((row) => {
+    const overdue = row.dueDate !== null && row.dueDate < today;
+    const reason =
+      overdue ? "Overdue"
+      : row.status === "blocked" ? "Blocked"
+      : row.status === "awaiting_approval" ? (row.approverId === viewer.userId ? "Your approval" : "Awaiting approval")
+      : row.assigneeId === null ? "Unassigned"
+      : "Due soon";
+    return { ...toListItem(row), reason };
+  });
+  items.sort((a, b) => ATTENTION_RANK[a.reason ?? ""] - ATTENTION_RANK[b.reason ?? ""] || (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
+  return items.slice(0, limit);
+}
+
 /** Title search for the command palette. */
 export async function searchTasks(viewer: Viewer, q: string): Promise<TaskListItem[]> {
   const term = q.trim().slice(0, 100);
@@ -196,6 +236,8 @@ export async function getTask(viewer: Viewer, id: string) {
       projectName: projects.name,
       requestTitle: requests.title,
       requesterId: requests.requesterId,
+      goalTitle: goals.title,
+      expectationTitle: teamExpectations.title,
       assignee: sql<Person | null>`case when ${assigneeUser.id} is null then null else ${personJson(assigneeUser)} end`,
       approver: sql<Person | null>`case when ${approverUser.id} is null then null else ${personJson(approverUser)} end`,
       creator: sql<Person>`${personJson(creatorUser)}`,
@@ -206,6 +248,8 @@ export async function getTask(viewer: Viewer, id: string) {
     .innerJoin(creatorUser, eq(creatorUser.id, tasks.createdBy))
     .leftJoin(projects, eq(projects.id, tasks.projectId))
     .leftJoin(requests, eq(requests.id, tasks.requestId))
+    .leftJoin(goals, eq(goals.id, tasks.goalId))
+    .leftJoin(teamExpectations, eq(teamExpectations.id, tasks.expectationId))
     .leftJoin(assigneeUser, eq(assigneeUser.id, tasks.assigneeId))
     .leftJoin(approverUser, eq(approverUser.id, tasks.approverId))
     .where(and(eq(tasks.id, id), eq(tasks.orgId, viewer.orgId)));
@@ -236,11 +280,40 @@ export async function getTask(viewer: Viewer, id: string) {
     completionSummary: t.completionSummary,
     lastUpdate: row.lastUpdate ? { author: row.lastUpdate.author, at: new Date(row.lastUpdate.at).toISOString() } : null,
     request: t.requestId && row.requestTitle ? { id: t.requestId, title: row.requestTitle } : null,
+    goal: t.goalId && row.goalTitle ? { id: t.goalId, title: row.goalTitle } : null,
+    expectation: t.expectationId && row.expectationTitle ? { id: t.expectationId, title: row.expectationTitle } : null,
+    impactNote: t.impactNote,
   };
   return {
     detail,
     scope: { orgId: t.orgId, teamId: t.teamId, assigneeId: t.assigneeId, createdBy: t.createdBy, approverId: t.approverId, requesterId: row.requesterId },
   };
+}
+
+/** What a task may be linked to: the org's active goals and open expectations (filtered to the team in the UI). */
+export async function linkOptions(viewer: Viewer): Promise<LinkOptions> {
+  const [goalRows, expectationRows] = await Promise.all([
+    db.select({ id: goals.id, title: goals.title, teamId: goals.teamId }).from(goals).where(and(eq(goals.orgId, viewer.orgId), eq(goals.status, "active"))).orderBy(asc(goals.title)),
+    db
+      .select({ id: teamExpectations.id, title: teamExpectations.title, teamId: teamExpectations.teamId })
+      .from(teamExpectations)
+      .where(and(eq(teamExpectations.orgId, viewer.orgId), eq(teamExpectations.status, "open")))
+      .orderBy(asc(teamExpectations.periodEnd)),
+  ]);
+  return { goals: goalRows, expectations: expectationRows };
+}
+
+/** Tasks linked to a goal or an expectation, open first. */
+export async function linkedTasks(viewer: Viewer, link: { goalId: string } | { expectationId: string }): Promise<TaskListItem[]> {
+  const rows = await db
+    .select(listColumns)
+    .from(tasks)
+    .innerJoin(teams, eq(teams.id, tasks.teamId))
+    .leftJoin(assigneeUser, eq(assigneeUser.id, tasks.assigneeId))
+    .where(and(visibility(viewer), "goalId" in link ? eq(tasks.goalId, link.goalId) : eq(tasks.expectationId, link.expectationId)))
+    .orderBy(sql`(${tasks.status} in ('completed', 'rejected'))`, sql`coalesce(${tasks.dueDate}, '9999-12-31'::date)`, desc(tasks.updatedAt))
+    .limit(200);
+  return rows.map(toListItem);
 }
 
 export async function listEvidence(viewer: Viewer, taskId: string): Promise<EvidenceLink[]> {
