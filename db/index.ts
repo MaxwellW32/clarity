@@ -3,20 +3,26 @@ import { Pool } from "pg";
 import * as schema from "./schema";
 
 // One pool per process. In development the module re-evaluates on every edit, so the pool is kept on
-// globalThis rather than leaking a new set of connections each time.
-const globalForDb = globalThis as unknown as { clarityPool?: Pool };
+// globalThis rather than leaking a new set of connections each time (bump the key when the options change).
+const globalForDb = globalThis as unknown as { clarityPoolV2?: Pool };
 
 const pool =
-  globalForDb.clarityPool ??
+  globalForDb.clarityPoolV2 ??
   new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 10,
+    // The database is remote: a dropped connection must fail fast, not hang every request behind it.
+    keepAlive: true,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 30_000,
+    statement_timeout: 15_000,
+    query_timeout: 20_000,
   });
 
-if (process.env.NODE_ENV !== "production") globalForDb.clarityPool = pool;
+if (process.env.NODE_ENV !== "production") globalForDb.clarityPoolV2 = pool;
 
 export const db = drizzle(pool, { schema });
 
 export type Db = typeof db;
-/** The handle a transaction callback receives — DAL helpers accept either. */
+/** The handle a transaction callback receives; DAL helpers accept either. */
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];

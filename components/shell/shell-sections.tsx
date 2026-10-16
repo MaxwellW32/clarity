@@ -1,10 +1,9 @@
-import { Search } from "lucide-react";
-import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { navFor } from "@/lib/permissions";
-import { requireViewerContext } from "@/lib/viewer";
+import { requireAppContext } from "@/lib/viewer";
 import { BottomTabs } from "./bottom-tabs";
 import { OrgSwitcher } from "./org-switcher";
+import { SearchButton } from "./search-button";
 import { SidebarNav } from "./sidebar-nav";
 import { UserMenu } from "./user-menu";
 
@@ -12,7 +11,7 @@ import { UserMenu } from "./user-menu";
 // requireViewerContext is React-cached, so they share a single lookup per request.
 
 async function context() {
-  const { viewer, user, orgs } = await requireViewerContext();
+  const { viewer, user, orgs } = await requireAppContext();
   return {
     viewer,
     user: { name: user.name, email: user.email, image: user.image },
@@ -41,15 +40,7 @@ export async function MobileTopBar() {
     <>
       <OrgSwitcher orgs={orgs} activeOrgId={viewer.orgId} compact />
       <div className="ml-auto flex items-center gap-1">
-        {viewer.orgRole !== "stakeholder" ? (
-          <Link
-            href="/tasks"
-            aria-label="Search tasks"
-            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <Search className="size-[18px]" aria-hidden />
-          </Link>
-        ) : null}
+        {viewer.orgRole !== "stakeholder" ? <SearchButton /> : null}
         <UserMenu user={user} variant="avatar" />
       </div>
     </>

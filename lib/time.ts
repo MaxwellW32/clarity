@@ -87,3 +87,14 @@ export function formatDue(due: string, today: string): { text: string; overdue: 
   });
   return { text: formatter.format(new Date(Date.UTC(year, month - 1, day))), overdue: false };
 }
+
+/** A calendar day as "Oct 20" (with the year when it isn't this year's). */
+export function formatDay(day: string, today: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Intl.DateTimeFormat("en", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    ...(day.slice(0, 4) === today.slice(0, 4) ? {} : { year: "numeric" }),
+  }).format(new Date(Date.UTC(year, month - 1, date)));
+}

@@ -3,7 +3,9 @@
 // cookie is checked against membership, that signing out works, and that the test sign-in itself refuses a wrong
 // secret, an unknown persona and an off-site redirect.
 //
-// Usage: node scripts/test-walkthrough/01-sign-in.mjs [--only=landing,routing,org,signout,guard]
+// Also: a brand-new account goes through onboarding, and a refresh or a detour never loses the step.
+//
+// Usage: node scripts/test-walkthrough/01-sign-in.mjs [--only=landing,routing,org,signout,onboarding,guard]
 import { openBrowser, withBrowser, step, finish, only, testSecret, DEFAULT_BASE_URL, PEOPLE, ORG, OTHER_ORG, HOME, query, closePool } from "./lib.mjs";
 
 const firstName = (persona) => PEOPLE[persona].name.split(" ")[0];
@@ -95,6 +97,57 @@ if (only("signout")) {
     const after = (await browser.settle()).split("?")[0];
     step("after signing out the app asks for sign-in again", after === "/login", after);
   });
+}
+
+if (only("onboarding")) {
+  console.log("\n— onboarding is resumable (a throwaway .test account, removed afterwards) —");
+  const tag = Math.random().toString(36).slice(2, 8);
+  const email = `onboard-${tag}${"@clarity.test"}`;
+  const [user] = await query("insert into users (id, email, name, email_verified) values ($1, $2, $3, now()) returning id", [crypto.randomUUID(), email, "Olive Onboard"]);
+  const token = crypto.randomUUID();
+  await query("insert into sessions (session_token, user_id, expires) values ($1, $2, now() + interval '1 hour')", [token, user.id]);
+  const orgName = `Onboard ${tag}`;
+  try {
+    await withBrowser({ role: "public", width: 390, height: 844 }, async (browser) => {
+      await browser.send("Network.setCookie", { name: "authjs.session-token", value: token, url: DEFAULT_BASE_URL, httpOnly: true, path: "/" });
+      await browser.goto(HOME, 3500);
+      const first = (await browser.settle()).split("?")[0];
+      step("a new account with no organisation is sent to onboarding", first === "/onboarding" && (await browser.waitFor("Organisation name", 20_000)), first);
+      await browser.type("Your company or group", `${orgName} typo`);
+      await browser.click("Create organisation", { exact: true, wait: 3000 });
+      step("creating the organisation moves to the team step", await browser.waitFor("Team name", 20_000));
+      await browser.send("Page.reload", {});
+      await browser.settle();
+      step("refreshing stays on the team step", (await browser.waitFor("Team name", 20_000)) && !(await browser.has("Organisation name")));
+      await browser.goto(HOME, 3000);
+      const bounced = (await browser.settle()).split("?")[0];
+      step("an admin whose org has no team is sent back to onboarding", bounced === "/onboarding" && (await browser.waitFor("Team name", 20_000)), bounced);
+      await browser.click("Back", { exact: true, wait: 2500 });
+      await browser.waitFor("Organisation name", 20_000);
+      const prefilled = await browser.evaluate(`document.querySelector("#org-name")?.value ?? null`);
+      step("Back shows the organisation step filled in", prefilled === `${orgName} typo`, String(prefilled));
+      await browser.type("#org-name", orgName);
+      await browser.click("Save organisation", { exact: true, wait: 3000 });
+      const [renamed] = await query("select o.name from organizations o join organization_members m on m.org_id = o.id where m.user_id = $1", [user.id]);
+      step("saving renames the organisation and returns to the team step", renamed?.name === orgName && (await browser.waitFor("Team name", 20_000)), renamed?.name);
+      await browser.type("Your team's name", "Apex Test");
+      await browser.click("Create team", { exact: true, wait: 3000 });
+      step("creating the team moves to the invite step", await browser.waitFor("Invite your colleagues", 20_000));
+      await browser.click("Skip for now", { exact: true, wait: 2500 });
+      step("skipping reaches the done step", await browser.waitFor("Go to overview", 20_000));
+      await browser.click("Go to overview", { exact: true, wait: 3000 });
+      const landed = await browser.waitForPath(HOME, 20_000);
+      step("the done step lands on the overview of the new org", landed && (await browser.waitFor(orgName, 20_000)) && (await browser.waitFor("Apex Test", 20_000)));
+      if (browser.problems.length > 0) console.log(`     console: ${JSON.stringify(browser.problems.slice(0, 3))}`);
+    });
+  } finally {
+    // Only this run's org (its sole member is the throwaway account) and the account itself.
+    await query(
+      "delete from organizations o where o.id in (select org_id from organization_members where user_id = $1) and not exists (select 1 from organization_members m where m.org_id = o.id and m.user_id <> $1)",
+      [user.id],
+    );
+    await query("delete from users where id = $1 and email like '%@clarity.test'", [user.id]);
+  }
 }
 
 if (only("guard")) {

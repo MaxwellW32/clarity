@@ -1,27 +1,31 @@
 "use server";
 
+import { eq } from "drizzle-orm";
+import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
 import { organizationMembers, organizations } from "@/db/schema";
 import { fail, GuardError, ok, runAction, type ActionResult } from "@/lib/action-result";
 import { DEFAULT_TIMEZONE } from "@/lib/constants";
-import { findMembership, uniqueSlug } from "@/lib/dal/orgs";
+import { findMembership, slugForRename, uniqueSlug } from "@/lib/dal/orgs";
+import { requireOrgAdmin } from "@/lib/guards";
 import { log } from "@/lib/log";
 import { setActiveOrgCookie } from "@/lib/org-cookie";
 import { isValidTimeZone } from "@/lib/time";
 import { requireUser } from "@/lib/viewer";
 
+const nameSchema = z.string().trim().min(2, "Give the organisation a name (2 characters or more).").max(80);
+
 const createSchema = z.object({
-  name: z.string().trim().min(2, "Give the organization a name (2 characters or more).").max(80),
-  timezone: z
-    .string()
-    .trim()
-    .default(DEFAULT_TIMEZONE)
-    .refine(isValidTimeZone, "Pick a timezone from the list."),
+  name: nameSchema,
+  timezone: z.string().trim().default(DEFAULT_TIMEZONE).refine(isValidTimeZone, "Pick a timezone from the list."),
 });
 
-/** Onboarding step 1 (and "New organization"): the creator becomes its first admin. */
+/**
+ * Onboarding's first step (and "New organization"): the creator becomes its first admin. Onboarding then
+ * works out the next step from what exists, so a refresh can never lose it.
+ */
 export async function createOrganization(input: z.input<typeof createSchema>): Promise<ActionResult<{ orgId: string }>> {
   const result = await runAction("org.create", createSchema, input, async (data) => {
     const user = await requireUser();
@@ -38,8 +42,25 @@ export async function createOrganization(input: z.input<typeof createSchema>): P
     log.info("org.created", { orgId, userId: user.id });
     return ok({ orgId });
   });
-  if (result.ok) redirect("/onboarding?step=team");
+  if (result.ok) redirect("/onboarding");
   return result;
+}
+
+const renameSchema = z.object({ name: nameSchema });
+
+/** Renames the active org; the slug follows the new name only when no other org has that slug. */
+export async function renameOrganization(input: z.input<typeof renameSchema>): Promise<ActionResult<{ slug: string }>> {
+  return runAction("org.rename", renameSchema, input, async ({ name }) => {
+    const { viewer, org } = await requireOrgAdmin();
+    const slug = await db.transaction(async (tx) => {
+      const next = await slugForRename(tx, viewer.orgId, name, org.slug);
+      await tx.update(organizations).set({ name, slug: next }).where(eq(organizations.id, viewer.orgId));
+      return next;
+    });
+    log.info("org.renamed", { orgId: viewer.orgId, by: viewer.userId });
+    refresh();
+    return ok({ slug }, "Organisation renamed.");
+  });
 }
 
 const switchSchema = z.object({ orgId: z.string().min(1) });

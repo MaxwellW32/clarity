@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { InvitationsSection } from "@/components/settings/invitations-section";
 import { MembersSection } from "@/components/settings/members-section";
+import { OrgName } from "@/components/settings/org-name";
 import { TeamsSection } from "@/components/settings/teams-section";
 import { listMembers, listPendingInvitations, listTeams } from "@/lib/dal/orgs";
 import { canManageOrg } from "@/lib/permissions";
@@ -22,14 +23,18 @@ export default async function OrganizationSettingsPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-base font-semibold">{org.name}</h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          {members.length} {members.length === 1 ? "member" : "members"} · {teams.length}{" "}
-          {teams.length === 1 ? "team" : "teams"} · {org.timezone.replaceAll("_", " ")}
-          {canManage ? null : " · Only admins can change members and teams."}
-        </p>
-      </div>
+      <OrgName
+        name={org.name}
+        canManage={canManage}
+        facts={[
+          `${members.length} ${members.length === 1 ? "member" : "members"}`,
+          `${teams.length} ${teams.length === 1 ? "team" : "teams"}`,
+          org.timezone.replaceAll("_", " "),
+          canManage ? null : "Only admins can change members and teams.",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      />
 
       <MembersSection
         viewerId={viewer.userId}

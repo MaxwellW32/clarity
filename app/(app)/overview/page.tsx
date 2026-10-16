@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ORG_ROLE_LABELS, TEAM_ROLE_LABELS } from "@/lib/constants";
 import { listTeams } from "@/lib/dal/orgs";
 import { canManageOrg, isAdmin } from "@/lib/permissions";
-import { requireViewerContext } from "@/lib/viewer";
+import { requireAppContext } from "@/lib/viewer";
 
 export const metadata: Metadata = { title: "Overview" };
 
@@ -17,7 +17,7 @@ function greeting(timeZone: string): string {
 }
 
 export default async function OverviewPage() {
-  const { viewer, user, org } = await requireViewerContext();
+  const { viewer, user, org } = await requireAppContext();
   const firstName = (user.name ?? "").split(" ")[0] || null;
   const teams = (await listTeams(viewer)).filter((team) => isAdmin(viewer) || viewer.teamRoles.has(team.id));
   const leads = teams.filter((team) => viewer.teamRoles.get(team.id) === "lead").map((team) => team.name);
@@ -41,48 +41,63 @@ export default async function OverviewPage() {
         }
       />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      {org.teamCount === 0 ? (
         <EmptyState
-          icon={LayoutGrid}
-          title="Your overview fills in once tasks arrive"
-          description={
-            viewer.orgRole === "stakeholder"
-              ? "Your requests, their decisions and the work they turned into will show up here."
-              : "Task tracking is coming in the next step. Attention items, team health and requests will show up here."
-          }
+          icon={Users}
+          title="No teams yet"
+          description="Your admin hasn't created a team yet. Your work will show up here once they do."
         />
+      ) : (
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <EmptyState
+            icon={LayoutGrid}
+            title="Your overview fills in with the team dashboard"
+            description={
+              viewer.orgRole === "stakeholder"
+                ? "Your requests, their decisions and the work they turned into will show up here."
+                : "Attention items, team health and requests arrive in the next step. My Work already has everything assigned to you."
+            }
+            action={
+              viewer.orgRole === "stakeholder" ? null : (
+                <Button asChild variant="outline">
+                  <Link href="/my-work">Open My Work</Link>
+                </Button>
+              )
+            }
+          />
 
-        {viewer.orgRole !== "stakeholder" ? (
-          <section aria-labelledby="teams-heading" className="rounded-lg border bg-card">
-            <h2 id="teams-heading" className="border-b px-4 py-3 text-sm font-medium">
-              {isAdmin(viewer) ? "Teams" : "Your teams"}
-            </h2>
-            {teams.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-muted-foreground">You aren&apos;t on a team yet.</p>
-            ) : (
-              <ul className="divide-y">
-                {teams.map((team) => {
-                  const role = viewer.teamRoles.get(team.id);
-                  return (
-                    <li key={team.id} className="flex items-center gap-3 px-4 py-3">
-                      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted">
-                        <Users className="size-4 text-muted-foreground" aria-hidden />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{team.name}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {team.members.length} {team.members.length === 1 ? "member" : "members"}
-                          {role ? ` · You're ${TEAM_ROLE_LABELS[role].toLowerCase()}` : ""}
+          {viewer.orgRole !== "stakeholder" ? (
+            <section aria-labelledby="teams-heading" className="rounded-lg border bg-card">
+              <h2 id="teams-heading" className="border-b px-4 py-3 text-sm font-medium">
+                {isAdmin(viewer) ? "Teams" : "Your teams"}
+              </h2>
+              {teams.length === 0 ? (
+                <p className="px-4 py-4 text-sm text-muted-foreground">You aren&apos;t on a team yet.</p>
+              ) : (
+                <ul className="divide-y">
+                  {teams.map((team) => {
+                    const role = viewer.teamRoles.get(team.id);
+                    return (
+                      <li key={team.id} className="flex items-center gap-3 px-4 py-3">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted">
+                          <Users className="size-4 text-muted-foreground" aria-hidden />
                         </span>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        ) : null}
-      </div>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{team.name}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {team.members.length} {team.members.length === 1 ? "member" : "members"}
+                            {role ? ` · You're ${TEAM_ROLE_LABELS[role].toLowerCase()}` : ""}
+                          </span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          ) : null}
+        </div>
+      )}
     </>
   );
 }

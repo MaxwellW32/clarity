@@ -41,6 +41,32 @@ export async function createTeam(input: z.input<typeof createSchema>): Promise<A
   });
 }
 
+const renameSchema = z.object({
+  teamId: z.string().min(1),
+  name: z.string().trim().min(2, "Give the team a name (2 characters or more).").max(60),
+});
+
+export async function renameTeam(input: z.input<typeof renameSchema>): Promise<ActionResult> {
+  return runAction("teams.rename", renameSchema, input, async ({ teamId, name }) => {
+    const { viewer } = await requireOrgAdmin();
+    const outcome = await db.transaction(async (tx) => {
+      const team = await findTeam(tx, viewer.orgId, teamId);
+      if (team === null) throw new GuardError("not_found");
+      if (team.name === name) return "unchanged";
+      const [clash] = await tx
+        .select({ id: teams.id })
+        .from(teams)
+        .where(and(eq(teams.orgId, viewer.orgId), eq(teams.name, name)));
+      if (clash) return "taken";
+      await tx.update(teams).set({ name }).where(eq(teams.id, team.id));
+      return "renamed";
+    });
+    if (outcome === "taken") return fail(`There is already a team called “${name}”.`);
+    refresh();
+    return ok(undefined, outcome === "renamed" ? "Team renamed." : undefined);
+  });
+}
+
 const memberSchema = z.object({ teamId: z.string().min(1), userId: z.string().min(1), role: z.enum(TEAM_ROLES) });
 
 /** Adds someone to a team, or changes their role on it. */

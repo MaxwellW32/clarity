@@ -1,18 +1,20 @@
 import "server-only";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { connection } from "next/server";
 import { cache } from "react";
-import { auth } from "@/lib/auth";
-import { getUserProfile, listMemberships, teamRolesFor, type Membership } from "@/lib/dal/orgs";
+import { db } from "@/db";
+import { sessions, users } from "@/db/schema";
+import { listMemberships, teamRolesForUser, type Membership } from "@/lib/dal/orgs";
 import { readActiveOrgCookie, tryRewriteActiveOrgCookie } from "@/lib/org-cookie";
-import type { Viewer } from "@/lib/permissions";
+import { isAdmin, type Viewer } from "@/lib/permissions";
 import { safeTimeZone } from "@/lib/time";
 
-export type SessionUser = { id: string; name: string | null; email: string; image: string | null };
+export type SessionUser = { id: string; name: string | null; email: string; image: string | null; timezone: string | null };
 
 export type ViewerContext = {
   viewer: Viewer;
-  user: SessionUser & { timezone: string | null };
+  user: SessionUser;
   org: Membership;
   /** Every org the user belongs to, for the switcher. */
   orgs: Membership[];
@@ -20,29 +22,39 @@ export type ViewerContext = {
 
 type Resolved = { status: "signed-out" } | { status: "no-org"; user: SessionUser } | ({ status: "ok" } & ViewerContext);
 
-/** The signed-in user (from the database session), or null. */
+/** Auth.js's database-session cookie: the __Secure- name on https (production), the plain one on http. */
+const SESSION_COOKIES = ["__Secure-authjs.session-token", "authjs.session-token"];
+
+/**
+ * The signed-in user, read straight from the session row (one query). Auth.js still handles sign-in, sign-out
+ * and its route; reads skip it, so nothing here mints tokens or touches the clock.
+ */
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
-  // Auth.js mints a CSRF token (crypto.getRandomValues) on every session read without a CSRF cookie. Partial
-  // Prefetching prerenders the App Shell with cookies resolved and rejects that randomness, so the session
-  // read happens at request time only; the shell's Suspense fallbacks cover it.
-  await connection();
-  const session = await auth();
-  const user = session?.user;
-  if (!user?.id || !user.email) return null;
-  return { id: user.id, name: user.name ?? null, email: user.email, image: user.image ?? null };
+  const store = await cookies();
+  const token = SESSION_COOKIES.map((name) => store.get(name)?.value).find((value) => value !== undefined && value !== "");
+  if (token === undefined) return null;
+  // Sessions last their original 30 days: reads never extend them.
+  const [row] = await db
+    .select({ id: users.id, name: users.name, email: users.email, image: users.image, timezone: users.timezone })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(and(eq(sessions.sessionToken, token), gt(sessions.expires, sql`now()`)));
+  if (!row || !row.email) return null;
+  return { ...row, email: row.email };
 });
 
 /**
  * Resolves the active organization: the `clarity.org` cookie when the user really is a member of that
  * org, otherwise their oldest membership (and the cookie is rewritten where that is possible).
+ * Two round trips: the session above, then memberships and team roles together.
  */
 const resolve = cache(async (): Promise<Resolved> => {
   const user = await getSessionUser();
   if (user === null) return { status: "signed-out" };
 
-  const [memberships, profile, wanted] = await Promise.all([
+  const [memberships, roles, wanted] = await Promise.all([
     listMemberships(user.id),
-    getUserProfile(user.id),
+    teamRolesForUser(user.id),
     readActiveOrgCookie(),
   ]);
   if (memberships.length === 0) return { status: "no-org", user };
@@ -50,12 +62,11 @@ const resolve = cache(async (): Promise<Resolved> => {
   const org = memberships.find((membership) => membership.orgId === wanted) ?? memberships[0];
   if (org.orgId !== wanted) await tryRewriteActiveOrgCookie(org.orgId);
 
-  const teamRoles = await teamRolesFor(user.id, org.orgId);
-  const timezone = profile?.timezone ?? null;
+  const teamRoles = new Map(roles.filter((role) => role.orgId === org.orgId).map((role) => [role.teamId, role.role]));
   return {
     status: "ok",
-    viewer: { userId: user.id, orgId: org.orgId, orgRole: org.role, teamRoles, timezone: safeTimeZone(timezone ?? org.timezone) },
-    user: { ...user, name: profile?.name ?? user.name, timezone },
+    viewer: { userId: user.id, orgId: org.orgId, orgRole: org.role, teamRoles, timezone: safeTimeZone(user.timezone ?? org.timezone) },
+    user,
     org,
     orgs: memberships,
   };
@@ -67,12 +78,28 @@ export async function getViewer(): Promise<Viewer | null> {
   return resolved.status === "ok" ? resolved.viewer : null;
 }
 
+/** The full context for the active org, or null. */
+export async function getViewerContext(): Promise<ViewerContext | null> {
+  const resolved = await resolve();
+  return resolved.status === "ok" ? { viewer: resolved.viewer, user: resolved.user, org: resolved.org, orgs: resolved.orgs } : null;
+}
+
 /** Signed-in user with an organization, or a redirect to /login or /onboarding. */
 export async function requireViewerContext(): Promise<ViewerContext> {
   const resolved = await resolve();
   if (resolved.status === "signed-out") redirect("/login");
   if (resolved.status === "no-org") redirect("/onboarding");
   return { viewer: resolved.viewer, user: resolved.user, org: resolved.org, orgs: resolved.orgs };
+}
+
+/**
+ * For app pages and the shell: an admin whose active org has no team yet is still setting up, so they go
+ * back to onboarding (which works out the step from what exists). Actions use requireViewerContext.
+ */
+export async function requireAppContext(): Promise<ViewerContext> {
+  const context = await requireViewerContext();
+  if (context.org.teamCount === 0 && isAdmin(context.viewer)) redirect("/onboarding");
+  return context;
 }
 
 export async function requireViewer(): Promise<Viewer> {
